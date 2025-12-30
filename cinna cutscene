@@ -1,0 +1,226 @@
+-- ANIME DOMAIN CUTSCENE
+-- WHITELIST ACTIVATION + VIEWER MODE
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Debris = game:GetService("Debris")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+------------------------------------------------
+-- CONFIG
+------------------------------------------------
+local ACTIVATION_SYMBOL = "𖺗"
+local VIEW_SYMBOL = "¬"
+
+local WHITELIST = {
+	[433636433] = true,
+	[4926923208] = true,
+	[196988708]  = true,
+	[2630250935] = true
+}
+
+-- CAMERA
+local ORBIT_RADIUS = 26
+local ORBIT_HEIGHT = 3
+local ORBIT_SPEED  = 0.8
+local CAMERA_FOV   = 110
+local SCENE_TIME   = 8
+
+-- OUTRO
+local OUTRO_TIME = 2.5
+local OUTRO_DISTANCE = 8
+
+-- STORM
+local EMITTER_COUNT = 600
+local STORM_RADIUS_MIN = 30
+local STORM_RADIUS_MAX = 100
+local STORM_SPEED_MIN = 1.5
+local STORM_SPEED_MAX = 4
+
+local SHOCKWAVE_SPEED = 180
+local SHOCKWAVE_LIFETIME = 3
+local SHOCKWAVE_BURST = 220
+
+local POSE_ANIM_ID = "rbxassetid://121732758244124"
+
+------------------------------------------------
+-- UTILS
+------------------------------------------------
+local function neonColor()
+	return ColorSequence.new(Color3.fromHSV(math.random(), 1, 1))
+end
+
+local function getWhitelistedPlayer()
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if WHITELIST[plr.UserId] and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			return plr
+		end
+	end
+end
+
+------------------------------------------------
+-- STATE
+------------------------------------------------
+local active = false
+local originalCamType = camera.CameraType
+local originalFOV = camera.FieldOfView
+
+------------------------------------------------
+-- VIEWER MODE
+------------------------------------------------
+local function viewCutscene()
+	local targetPlayer = getWhitelistedPlayer()
+	if not targetPlayer then return end
+
+	local root = targetPlayer.Character.HumanoidRootPart
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.FieldOfView = CAMERA_FOV
+
+	local start = tick()
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		if not root.Parent then conn:Disconnect() return end
+		local t = tick() - start
+		local camPos = root.Position + Vector3.new(
+			math.cos(t * ORBIT_SPEED) * ORBIT_RADIUS,
+			ORBIT_HEIGHT,
+			math.sin(t * ORBIT_SPEED) * ORBIT_RADIUS
+		)
+		camera.CFrame = CFrame.new(camPos, root.Position + Vector3.new(0,4,0))
+	end)
+
+	task.delay(SCENE_TIME + OUTRO_TIME, function()
+		conn:Disconnect()
+		camera.CameraType = originalCamType
+		camera.FieldOfView = originalFOV
+	end)
+end
+
+------------------------------------------------
+-- MAIN CUTSCENE
+------------------------------------------------
+local function startCutscene()
+	if active then return end
+	active = true
+
+	Players:Chat("domain expansion infinite sparkles!")
+
+	local char = player.Character or player.CharacterAdded:Wait()
+	local hum = char:WaitForChild("Humanoid")
+	local root = char:WaitForChild("HumanoidRootPart")
+
+	-- lock player
+	hum.WalkSpeed = 0
+	hum.JumpPower = 0
+	hum.AutoRotate = false
+	hum.MaxHealth = math.huge
+	hum.Health = math.huge
+	hum.BreakJointsOnDeath = false
+
+	-- pose
+	local anim = Instance.new("Animation")
+	anim.AnimationId = POSE_ANIM_ID
+	local track = hum:LoadAnimation(anim)
+	track:Play()
+	track:AdjustSpeed(0)
+
+	-- darken world
+	Lighting.Brightness = 0.25
+	Lighting.Ambient = Color3.new(0,0,0)
+	Lighting.OutdoorAmbient = Color3.new(0,0,0)
+
+	-- storm
+	local storm = {}
+	for i = 1, EMITTER_COUNT do
+		local att = Instance.new("Attachment", root)
+		local e = Instance.new("ParticleEmitter", att)
+		e.Rate = 160
+		e.Lifetime = NumberRange.new(2)
+		e.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0,1),
+			NumberSequenceKeypoint.new(1,0)
+		})
+		e.LightEmission = 5
+		e.Color = neonColor()
+		e.Texture = "rbxassetid://296874871"
+
+		table.insert(storm,{
+			att=att, emitter=e,
+			angle=math.random()*math.pi*2,
+			speed=math.random(STORM_SPEED_MIN,STORM_SPEED_MAX),
+			radius=math.random(STORM_RADIUS_MIN,STORM_RADIUS_MAX)
+		})
+	end
+
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.FieldOfView = CAMERA_FOV
+
+	local start = tick()
+	local camConn
+	camConn = RunService.RenderStepped:Connect(function(dt)
+		local t = tick()-start
+		camera.CFrame = CFrame.new(
+			root.Position + Vector3.new(
+				math.cos(t*ORBIT_SPEED)*ORBIT_RADIUS,
+				ORBIT_HEIGHT,
+				math.sin(t*ORBIT_SPEED)*ORBIT_RADIUS
+			),
+			root.Position + Vector3.new(0,4,0)
+		)
+		for _,s in ipairs(storm) do
+			s.angle += dt*s.speed
+			s.att.Position = Vector3.new(
+				math.cos(s.angle)*s.radius,
+				0,
+				math.sin(s.angle)*s.radius
+			)
+		end
+	end)
+
+	task.wait(SCENE_TIME)
+
+	-- outro
+	local outroStart = tick()
+	local last = camera.CFrame
+	while tick()-outroStart < OUTRO_TIME do
+		local a=(tick()-outroStart)/OUTRO_TIME
+		camera.CFrame = last:Lerp(
+			CFrame.new(root.Position + Vector3.new(0,3,-OUTRO_DISTANCE), root.Position),
+			a*a
+		)
+		RunService.RenderStepped:Wait()
+	end
+
+	-- shockwave
+	camConn:Disconnect()
+	for _,s in ipairs(storm) do
+		s.emitter.Speed = NumberRange.new(SHOCKWAVE_SPEED)
+		s.emitter.Lifetime = NumberRange.new(SHOCKWAVE_LIFETIME)
+		s.emitter:Emit(SHOCKWAVE_BURST)
+		Debris:AddItem(s.att,3)
+	end
+
+	-- restore
+	camera.CameraType = originalCamType
+	camera.FieldOfView = originalFOV
+	hum.WalkSpeed = 16
+	hum.JumpPower = 50
+	hum.AutoRotate = true
+	hum.BreakJointsOnDeath = true
+
+	active = false
+end
+
+------------------------------------------------
+-- CHAT LISTENER
+------------------------------------------------
+player.Chatted:Connect(function(msg)
+	if msg == ACTIVATION_SYMBOL and WHITELIST[player.UserId] then
+		startCutscene()
+	elseif msg == VIEW_SYMBOL then
+		viewCutscene()
+	end
+end)
